@@ -16,6 +16,7 @@ package spanprocessor
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	tracepb "github.com/census-instrumentation/opencensus-proto/gen-go/trace/v1"
@@ -575,4 +576,125 @@ func TestSpanProcessor_NilName(t *testing.T) {
 		},
 	}, traceData)
 
+}
+
+func generateInputs(i int) ([]string, *tracepb.Span) {
+	fromAttributes := make([]string, i)
+	inputAttributes := &tracepb.Span{
+		Name: &tracepb.TruncatableString{Value: "InputSpan"},
+		Attributes: &tracepb.Span_Attributes{
+			AttributeMap: map[string]*tracepb.AttributeValue{},
+		},
+	}
+
+	for j := 0; j < i; j++ {
+		key := fmt.Sprintf("key:%d", j)
+		fromAttributes[j] = key
+		inputAttributes.Attributes.AttributeMap[key] = &tracepb.AttributeValue{
+			Value: &tracepb.AttributeValue_IntValue{IntValue: cast.ToInt64(j)},
+		}
+	}
+	return fromAttributes, inputAttributes
+}
+
+var cases = []int{10, 100, 1000}
+
+func CurrImpl(separator string, b *testing.B) {
+	b.ReportAllocs()
+	for _, l := range cases {
+		from, input := generateInputs(l)
+		// Create input
+		factory := Factory{}
+		cfg := factory.CreateDefaultConfig()
+		oCfg := cfg.(*Config)
+		oCfg.Rename.FromAttributes = from
+		oCfg.Rename.Separator = separator
+
+		tp, err := factory.CreateTraceProcessor(zap.NewNop(), exportertest.NewNopTraceExporter(), oCfg)
+		stp := tp.(*spanProcessor)
+		require.Nil(b, err)
+		require.NotNil(b, tp)
+		name := fmt.Sprintf("length:%d", l)
+		b.ReportAllocs()
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				stp.NameSpan(input)
+			}
+		})
+	}
+}
+
+func AppendToSlice(separator string, b *testing.B) {
+	b.ReportAllocs()
+	for _, l := range cases {
+		from, input := generateInputs(l)
+		// Create input
+		factory := Factory{}
+		cfg := factory.CreateDefaultConfig()
+		oCfg := cfg.(*Config)
+		oCfg.Rename.FromAttributes = from
+		oCfg.Rename.Separator = separator
+
+		tp, err := factory.CreateTraceProcessor(zap.NewNop(), exportertest.NewNopTraceExporter(), oCfg)
+		stp := tp.(*spanProcessor)
+		require.Nil(b, err)
+		require.NotNil(b, tp)
+		name := fmt.Sprintf("length:%d", l)
+		b.ReportAllocs()
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				stp.AppendToSlice(input)
+			}
+		})
+	}
+}
+
+func IndexInsert(separator string, b *testing.B) {
+	b.ReportAllocs()
+	for _, l := range cases {
+		from, input := generateInputs(l)
+		// Create input
+		factory := Factory{}
+		cfg := factory.CreateDefaultConfig()
+		oCfg := cfg.(*Config)
+		oCfg.Rename.FromAttributes = from
+		oCfg.Rename.Separator = separator
+
+		tp, err := factory.CreateTraceProcessor(zap.NewNop(), exportertest.NewNopTraceExporter(), oCfg)
+		stp := tp.(*spanProcessor)
+		require.Nil(b, err)
+		require.NotNil(b, tp)
+		name := fmt.Sprintf("length:%d", l)
+		b.ReportAllocs()
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				stp.IndexInsert(input)
+			}
+		})
+	}
+}
+
+func BenchmarkCurrentImpl_Separator(b *testing.B) {
+	CurrImpl(";;", b)
+}
+
+func BenchmarkCurrentImpl_NoSeparator(b *testing.B) {
+	CurrImpl("", b)
+}
+
+func BenchmarkAppendToSliceSeparator(b *testing.B) {
+	AppendToSlice("::", b)
+}
+func BenchmarkAppendToSlice_NoSeparator(b *testing.B) {
+	AppendToSlice("", b)
+}
+
+func BenchmarkIndexInsert_NoSeparator(b *testing.B) {
+	IndexInsert("", b)
+}
+func BenchmarkIndexInsert_Separator(b *testing.B) {
+	IndexInsert("::", b)
 }

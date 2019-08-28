@@ -30,6 +30,7 @@ import (
 type spanProcessor struct {
 	nextConsumer consumer.TraceConsumer
 	config       Config
+	lenkeys      int
 }
 
 // NewTraceProcessor returns the span processor.
@@ -41,6 +42,7 @@ func NewTraceProcessor(nextConsumer consumer.TraceConsumer, config Config) (proc
 	sp := &spanProcessor{
 		nextConsumer: nextConsumer,
 		config:       config,
+		lenkeys:      len(config.Rename.FromAttributes),
 	}
 
 	return sp, nil
@@ -52,12 +54,12 @@ func (sp *spanProcessor) ConsumeTraceData(ctx context.Context, td consumerdata.T
 			continue
 		}
 		// Name the span using attribute values.
-		sp.nameSpan(span)
+		sp.NameSpan(span)
 	}
 	return sp.nextConsumer.ConsumeTraceData(ctx, td)
 }
 
-func (sp *spanProcessor) nameSpan(span *tracepb.Span) {
+func (sp *spanProcessor) NameSpan(span *tracepb.Span) {
 	// Currently, there is no preallocation for the length of the string builder
 	// backing the new span name. If this does become a performance issue, the
 	// methods Grow() and Len() and the length returned by WriteString() can be
@@ -106,4 +108,72 @@ func (sp *spanProcessor) nameSpan(span *tracepb.Span) {
 	}
 	span.Name = &tracepb.TruncatableString{Value: sb.String()}
 
+}
+
+func (sp *spanProcessor) AppendToSlice(span *tracepb.Span) {
+	nameParts := make([]string, 0, sp.lenkeys)
+	for _, key := range sp.config.Rename.FromAttributes {
+		attrib, ok := span.Attributes.AttributeMap[key]
+		if !ok {
+			break
+		}
+		var namePart string
+		if attrib == nil {
+			namePart = "<nil-attribute-value>"
+		} else {
+			switch attribValue := attrib.Value.(type) {
+			case *tracepb.AttributeValue_StringValue:
+				namePart = attribValue.StringValue.GetValue()
+			case *tracepb.AttributeValue_IntValue:
+				namePart = strconv.FormatInt(attribValue.IntValue, 10)
+			case *tracepb.AttributeValue_BoolValue:
+				namePart = strconv.FormatBool(attribValue.BoolValue)
+			case *tracepb.AttributeValue_DoubleValue:
+				namePart = strconv.FormatFloat(attribValue.DoubleValue, 'f', -1, 64)
+			default:
+				namePart = "<unknown-attribute-type>"
+			}
+		}
+		nameParts = append(nameParts, namePart)
+	}
+	if len(nameParts) == sp.lenkeys {
+		if span.Name == nil {
+			span.Name = &tracepb.TruncatableString{}
+		}
+		span.Name.Value = strings.Join(nameParts, sp.config.Rename.Separator)
+	}
+}
+
+func (sp *spanProcessor) IndexInsert(span *tracepb.Span) {
+	nameParts := make([]string, sp.lenkeys)
+	for i, key := range sp.config.Rename.FromAttributes {
+		attrib, ok := span.Attributes.AttributeMap[key]
+		if !ok {
+			break
+		}
+		var namePart string
+		if attrib == nil {
+			namePart = "<nil-attribute-value>"
+		} else {
+			switch attribValue := attrib.Value.(type) {
+			case *tracepb.AttributeValue_StringValue:
+				namePart = attribValue.StringValue.GetValue()
+			case *tracepb.AttributeValue_IntValue:
+				namePart = strconv.FormatInt(attribValue.IntValue, 10)
+			case *tracepb.AttributeValue_BoolValue:
+				namePart = strconv.FormatBool(attribValue.BoolValue)
+			case *tracepb.AttributeValue_DoubleValue:
+				namePart = strconv.FormatFloat(attribValue.DoubleValue, 'f', -1, 64)
+			default:
+				namePart = "<unknown-attribute-type>"
+			}
+		}
+		nameParts[i] = namePart
+	}
+	if len(nameParts) == sp.lenkeys {
+		if span.Name == nil {
+			span.Name = &tracepb.TruncatableString{}
+		}
+		span.Name.Value = strings.Join(nameParts, sp.config.Rename.Separator)
+	}
 }
